@@ -38,7 +38,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'gee'
+    'gee',
+    'django_crontab',
 ]
 
 MIDDLEWARE = [
@@ -123,3 +124,8 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+CRONJOBS = [
+    ('*/2 * * * *', 'gee.cron.sample', '>> /Users/shashankdutt/GEE/gee-lulc-webapp/gee_/DjangoGEE/gee/cron_logfile.log 2>&1'),
+]

@@ -7,13 +7,14 @@ from django.views.generic import TemplateView
 
 #folium
 import folium
-from folium import plugins
 
 
 #gee
 import ee
 
 ee.Initialize()
+
+
 
 
 #home
@@ -25,20 +26,106 @@ class home(TemplateView):
 
         figure = folium.Figure()
         
+
         #create Folium Object
         m = folium.Map(
-            location=[28.5973518, 83.54495724],
+            location=[23, 88],
             zoom_start=8
         )
 
         #add map to figure
         m.add_to(figure)
 
+
+        #folium imports
+        # Add custom base maps to folium
+        basemaps = {
+            'Google Maps': folium.TileLayer(
+                tiles = 'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}',
+                attr = 'Google',
+                name = 'Google Maps',
+                overlay = True,
+                control = True
+            ),
+            'Google Satellite': folium.TileLayer(
+                tiles = 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+                attr = 'Google',
+                name = 'Google Satellite',
+                overlay = True,
+                control = True
+            ),
+            'Google Terrain': folium.TileLayer(
+                tiles = 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+                attr = 'Google',
+                name = 'Google Terrain',
+                overlay = True,
+                control = True
+            ),
+            'Google Satellite Hybrid': folium.TileLayer(
+                tiles = 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+                attr = 'Google',
+                name = 'Google Satellite',
+                overlay = True,
+                control = True
+            ),
+            'Esri Satellite': folium.TileLayer(
+                tiles = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                attr = 'Esri',
+                name = 'Esri Satellite',
+                overlay = True,
+                control = True
+            )
+        }
+
+        # Add custom basemaps
+        basemaps['Google Maps'].add_to(m)
+        basemaps['Google Satellite Hybrid'].add_to(m)
+
+
+
+        S2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED').filterDate('2024-01-01', '2024-05-30') \
+            .filterBounds(ee.Geometry.Polygon(
+                [[[88.5034748557929, 22.401058301237384],
+                [88.5034748557929, 21.547808553681804],
+                [89.17638745344915, 21.547808553681804],
+                [89.17638745344915, 22.401058301237384]]])) \
         
+        vizParams = {'bands': ['B8', 'B4', 'B3'], 'min': 600, 'max': 1000, 'opacity': 1.0, 'gamma': 1.0}
+
+         #add the map to the the folium map
+        map_id_dict = ee.Image(S2.median()).getMapId(vizParams)
+       
+        #GEE raster data to TileLayer
+        #GEE raster data to TileLayer
+        folium.raster_layers.TileLayer(
+                    tiles = map_id_dict['tile_fetcher'].url_format,
+                    attr = 'Google Earth Engine',
+                    name = 'NDVI',
+                    overlay = True,
+                    control = True
+                    ).add_to(m)
+
+        
+        #add Layer control
+        m.add_child(folium.LayerControl())
+       
+        #figure 
+        figure.render()
+         
+        #return map
+        return {"map": figure}
+
+'''
         #select the Dataset Here's used the MODIS data
-        dataset = (ee.ImageCollection('MODIS/006/MOD13Q1')
-                  .filter(ee.Filter.date('2019-07-01', '2019-11-30'))
-                  .first())
+        dataset = ee.ImageCollection('MODIS/006/MOD13Q1') \
+                  .filter(ee.Filter.date('2019-07-01', '2019-11-30')) \
+                .filterBounds(ee.Geometry.Polygon(
+                [[[88.5034748557929, 22.401058301237384],
+                [88.5034748557929, 21.547808553681804],
+                [89.17638745344915, 21.547808553681804],
+                [89.17638745344915, 22.401058301237384]]])) \
+                .first()
+        
         modisndvi = dataset.select('NDVI')
 
         #Styling 
@@ -59,14 +146,8 @@ class home(TemplateView):
                     overlay = True,
                     control = True
                     ).add_to(m)
-
-        
-        #add Layer control
-        m.add_child(folium.LayerControl())
+                    '''
        
-        #figure 
-        figure.render()
+        
 
-         
-        #return map
-        return {"map": figure}
+       
