@@ -23,6 +23,10 @@ class home(TemplateView):
 
     # Define a method for displaying Earth Engine image tiles on a folium map.
     def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        start_date = self.request.GET.get('start_date', '2024-01-01')
+        end_date = self.request.GET.get('end_date', '2024-05-30')
 
         figure = folium.Figure()
         
@@ -83,7 +87,7 @@ class home(TemplateView):
 
 
 
-        S2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED').filterDate('2024-01-01', '2024-05-30') \
+        S2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED').filterDate(start_date, end_date) \
             .filterBounds(ee.Geometry.Polygon(
                 [[[88.5034748557929, 22.401058301237384],
                 [88.5034748557929, 21.547808553681804],
@@ -110,10 +114,13 @@ class home(TemplateView):
         m.add_child(folium.LayerControl())
        
         #figure 
+
         figure.render()
-         
+        context['map'] = figure
+        context['start_date'] = start_date
+        context['end_date'] = end_date 
         #return map
-        return {"map": figure}
+        return context
 
 '''
         #select the Dataset Here's used the MODIS data

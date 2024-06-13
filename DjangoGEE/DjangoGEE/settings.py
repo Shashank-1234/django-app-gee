@@ -40,6 +40,10 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'gee',
     'django_crontab',
+    'django.contrib.sites',  # Required for django-allauth
+    'allauth',
+    'allauth.account',
+    'allauth.socialaccount',
 ]
 
 MIDDLEWARE = [
@@ -50,7 +54,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'allauth.account.middleware.AccountMiddleware',  # Required for django-allauth
 ]
+
 
 ROOT_URLCONF = 'DjangoGEE.urls'
 
@@ -127,5 +133,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 CRONJOBS = [
-    ('*/2 * * * *', 'gee.cron.sample', '>> /Users/shashankdutt/GEE/gee-lulc-webapp/gee_/DjangoGEE/gee/cron_logfile.log 2>&1'),
+    ('*/2 * * * *', 'gee.cron.fetch_latest_image', '>> /Users/shashankdutt/GEE/gee-lulc-webapp/gee_/DjangoGEE/gee/cron_logfile.log 2>&1'),
 ]
+
+
+# django-allauth settings
+SITE_ID = 1
+
+ACCOUNT_EMAIL_VERIFICATION = 'mandatory'
+ACCOUNT_AUTHENTICATION_METHOD = 'username_email'
+ACCOUNT_EMAIL_REQUIRED = True

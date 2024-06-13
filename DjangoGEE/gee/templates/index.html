@@ -2,13 +2,47 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Title</title>
-    {{map.header.render|safe}}
+    <title>Earth Engine Maps</title>
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        #map {
+            height: 500px;  /* Adjust the height as needed */
+            margin-top: 20px;
+        }
+    </style>
+    {{ map.header.render|safe }}
 </head>
 <body>
-  {{map.html.render|safe}}
-  <script>
-    {{map.script.render|safe}}
-  </script>
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-md-12">
+                <form method="get" action="">
+                    <div class="form-row align-items-end">
+                        <div class="col-auto">
+                            <label for="start_date">Start Date:</label>
+                            <input type="date" id="start_date" name="start_date" class="form-control" value="{{ start_date }}">
+                        </div>
+                        <div class="col-auto">
+                            <label for="end_date">End Date:</label>
+                            <input type="date" id="end_date" name="end_date" class="form-control" value="{{ end_date }}">
+                        </div>
+                        <div class="col-auto">
+                            <button type="submit" class="btn btn-primary">Get Map</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="row mt-4">
+            <div class="col-md-12">
+                <div id="map">
+                    {{ map.html.render|safe }}
+                </div>
+            </div>
+        </div>
+    </div>
+    <script>
+        {{ map.script.render|safe }}
+    </script>
 </body>
 </html>

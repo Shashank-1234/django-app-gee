@@ -1,6 +1,8 @@
 from django.apps import AppConfig
+import ee
 
-
-class GeeConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
+class MyappConfig(AppConfig):
     name = 'gee'
+
+    def ready(self):
+        ee.Initialize()
