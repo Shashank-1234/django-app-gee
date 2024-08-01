@@ -104,12 +104,26 @@ class home(TemplateView):
         folium.raster_layers.TileLayer(
                     tiles = map_id_dict['tile_fetcher'].url_format,
                     attr = 'Google Earth Engine',
-                    name = 'NDVI',
+                    name = 'Solar annual radiation',
                     overlay = True,
                     control = True
                     ).add_to(m)
 
-        
+        # Load Google Research Open Buildings data
+        buildings = ee.FeatureCollection("GOOGLE/Research/open-buildings/v3/polygons")
+
+        # Add buildings data to the map
+        buildings_map_id = buildings.style(color='blue').getMapId()
+
+        folium.raster_layers.TileLayer(
+            tiles=buildings_map_id['tile_fetcher'].url_format,
+            attr='Google Earth Engine',
+            name='Open Buildings',
+            overlay=True,
+            control=True
+        ).add_to(m)
+
+
         #add Layer control
         m.add_child(folium.LayerControl())
        

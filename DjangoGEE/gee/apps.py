@@ -5,4 +5,5 @@ class MyappConfig(AppConfig):
     name = 'gee'
 
     def ready(self):
-        ee.Initialize()
+        ee.Authenticate()
+        ee.Initialize(project='ee-sagirajushashank')
