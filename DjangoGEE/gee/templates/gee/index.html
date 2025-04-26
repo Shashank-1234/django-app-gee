@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container mt-4">
+  <!-- Map Controls Section -->
+  <div class="card mb-4">
+    <div class="card-header bg-primary text-white">
+      <h5 class="mb-0">Map Controls</h5>
+    </div>
+    <div class="card-body">
+      <!-- 
+        NOTE: We include lat/lon here as hidden so that when the user clicks
+        and submits, those values get sent back to your view.
+      -->
+      <form method="GET" class="row g-3">
+        <div class="col-md-6">
+          <label for="start_date" class="form-label">Start Date</label>
+          <input
+            type="text"
+            class="form-control"
+            id="start_date"
+            name="start_date"
+            value="{{ start_date }}"
+            placeholder="YYYY-MM-DD"
+          >
+        </div>
+        <div class="col-md-6">
+          <label for="end_date" class="form-label">End Date</label>
+          <input
+            type="text"
+            class="form-control"
+            id="end_date"
+            name="end_date"
+            value="{{ end_date }}"
+            placeholder="YYYY-MM-DD"
+          >
+        </div>
+
+        <!-- Hidden lat/lon fields to be populated by the map click script -->
+        <input type="hidden" name="lat" id="id_lat" value="{{ lat }}">
+        <input type="hidden" name="lon" id="id_lon" value="{{ lon }}">
+
+        <div class="col-12">
+          <button type="submit" class="btn btn-primary">Generate Map</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Map Display Section -->
+  <div class="card mb-4">
+    <div class="card-header bg-success text-white">
+      <h5 class="mb-0">Satellite Map</h5>
+    </div>
+    <div class="card-body p-0">
+      <!-- fixed height so the map actually renders -->
+      <div id="map-container" style="width:100%; height:400px;">
+        {{ map_html|safe }}
+      </div>
+    </div>
+  </div>
+
+  <!-- Prediction Status Alert -->
+  {% if prediction_status %}
+    <div class="alert {% if 'Error' in prediction_status %}
+      alert-danger
+    {% else %}
+      alert-success
+    {% endif %} mb-4">
+      {{ prediction_status }}
+    </div>
+  {% endif %}
+
+  <!-- Prediction Results Section -->
+  {% if prediction_plot %}
+    <div class="card mb-4">
+      <div class="card-header bg-info text-white">
+        <h5 class="mb-0">Land Cover Prediction Results</h5>
+      </div>
+      <div class="card-body text-center">
+        <img
+          src="data:image/png;base64,{{ prediction_plot }}"
+          class="img-fluid"
+          alt="Prediction Results"
+        >
+      </div>
+    </div>
+  {% endif %}
+
+  <!-- Legend Section -->
+  <div class="card mb-4">
+    <div class="card-header bg-secondary text-white">
+      <h5 class="mb-0">Land Cover Legend</h5>
+    </div>
+    <div class="card-body">
+      <ul class="list-group">
+        {% for key, value in classifications.items %}
+          <li class="list-group-item d-flex align-items-center">
+            <span
+              class="badge me-2"
+              style="background-color: #{{ value.color }}; width: 30px; height: 30px;"
+            ></span>
+            {{ value.name }}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+
+{# --- JavaScript to hook Leaflet clicks → form fields --- #}
+<script>
+  // 1) Find the Leaflet map object that Folium created
+  let leafletMap;
+  for (let key in window) {
+    if (window[key] instanceof L.Map) {
+      leafletMap = window[key];
+      break;
+    }
+  }
+  if (!leafletMap) {
+    console.error("Leaflet map not found!");
+  } else {
+    // 2) Add click listener
+    leafletMap.on('click', function(e) {
+      const { lat, lng } = e.latlng;
+
+      // Drop a marker so user sees where they clicked
+      L.marker([lat, lng]).addTo(leafletMap);
+
+      // Populate hidden form fields
+      document.getElementById('id_lat').value = lat.toFixed(6);
+      document.getElementById('id_lon').value = lng.toFixed(6);
+
+      // OPTIONAL: immediately submit the form for instant prediction
+      // document.forms[0].submit();
+    });
+  }
+</script>
+{% endblock %}
