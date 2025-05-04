@@ -1,3 +1,4 @@
+
 from django.shortcuts import render
 from django.views.generic import TemplateView
 import folium
@@ -19,16 +20,6 @@ ee.Initialize()
 # Constants from your preprocessing
 PATCH_SIZE = 510
 SCALE = 10
-NORM_PERCENTILES = np.array([
-    [1.7417268007636313, 2.023298706048351],
-    [1.7261204997060209, 2.038905204308012],
-    [1.6798346251414997, 2.179592821212937],
-    [1.7734969472909623, 2.2890068333026603],
-    [2.289154079164943, 2.6171674549378166],
-    [2.382939712192371, 2.773418590375327],
-    [2.3828939530384052, 2.7578332604178284],
-    [2.1952484264967844, 2.789092484314204],
-    [1.554812948247501, 2.4140534947492487]])
 
 def resize_image(image: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray:
     """Resizes an image to target shape using bilinear interpolation"""
@@ -37,10 +28,9 @@ def resize_image(image: np.ndarray, target_shape: Tuple[int, int]) -> np.ndarray
 
 def get_sentinel2_image(lon: float, lat: float, start_date, end_date, scale=10, max_days=30):
 
-    s2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+    s2 = ee.ImageCollection('COPERNICUS/S2_HARMONIZED')
     # In this example, we'll define a point in the DRC.
     POI = ee.Geometry.Point([lon, lat])
-
 
     s2 = s2.filterBounds(POI).filterDate(start_date, end_date) \
     .sort('system:time_start', False)
@@ -58,7 +48,6 @@ def get_sentinel2_image(lon: float, lat: float, start_date, end_date, scale=10, 
         return None
 
 
-
     # # Compute Spectral Indices using normalizedDifference
     # ndvi = s2_image.normalizedDifference(['B8', 'B4']).rename('NDVI')   # Vegetation
     # ndwi = s2_image.normalizedDifference(['B3', 'B8']).rename('NDWI')   # Water
@@ -67,7 +56,7 @@ def get_sentinel2_image(lon: float, lat: float, start_date, end_date, scale=10, 
     # Add the indices to the original image
     # s2_image = s2_image.addBands([ndvi, ndwi, ndbi])
 
-    s2_image = s2_image.select('B2')
+    s2_image = s2_image.select('B2','B3','B4','B5','B6','B7','B8','B11','B12')
 
     # Resample the data so that the bands all map 1 pixel -> 10m. We'll use B2 (red)
     # for a reference projection.
@@ -83,7 +72,6 @@ def get_sentinel2_image(lon: float, lat: float, start_date, end_date, scale=10, 
     s2_image_sample = s2_image.toArray().sampleRectangle(POI.buffer(2000))
 
     image = np.array(s2_image_sample.getInfo()['properties']['array'])
-
 
 
 
@@ -125,7 +113,6 @@ def get_sentinel1_image(lon, lat, start_date, end_date, scale=10, max_days=30):
     # In this example, we'll define a point in the DRC.
     POI = ee.Geometry.Point([lon, lat])
 
-
     def speckle_filter(image):
         kernel = ee.Kernel.square(7)
         mean = image.reduceNeighborhood(ee.Reducer.mean(), kernel)
@@ -151,7 +138,6 @@ def get_sentinel1_image(lon, lat, start_date, end_date, scale=10, max_days=30):
     #Function to convert to dB
     def toDB(img):
       return ee.Image(img).log10().multiply(10.0)
-
 
     import math
     # Implementation by Andreas Vollrath (ESA), inspired by Johannes Reiche (Wageningen)
@@ -324,7 +310,6 @@ def get_sentinel1_image(lon, lat, start_date, end_date, scale=10, max_days=30):
       #return(result)
       return(img.addBands(ee.Image(toDB(result.arrayGet(0))).rename("filter")))
 
-
     #print(f"Sentinel-1 date range: {start_date} to {end_date}")
     #print(f"Sentinel-1 collection size: {s1.size().getInfo()}")
 
@@ -343,7 +328,6 @@ def get_sentinel1_image(lon, lat, start_date, end_date, scale=10, max_days=30):
     s1_image_sample_vv = s1_vv.toArray().sampleRectangle(region=POI.buffer(2000))
     s1_image_sample_vh = s1_vh.toArray().sampleRectangle(region=POI.buffer(2000))
 
-
     image_vv = np.array(s1_image_sample_vv.getInfo()['properties']['array'])
     #print(image_vv)
     image_vh = np.array(s1_image_sample_vh.getInfo()['properties']['array'])
@@ -358,7 +342,6 @@ def get_sentinel1_image(lon, lat, start_date, end_date, scale=10, max_days=30):
     return image_vv, image_vh
 
 
-
 from django.views.generic import TemplateView
 import folium
 import ee
@@ -371,7 +354,6 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from io import BytesIO
 import base64
-
 
 import os
 import logging
@@ -397,7 +379,6 @@ from .models import LandCoverModel
 
 logger = logging.getLogger(__name__)
 
-
 class home(TemplateView):
     template_name = 'gee/index.html'
 
@@ -407,10 +388,23 @@ class home(TemplateView):
         # 1) Read query parameters (with defaults)
         lat        = float(self.request.GET.get('lat',       22.139527120131657))
         lon        = float(self.request.GET.get('lon',       88.85593401040623))
-        start_date = self.request.GET.get('start_date', '2024-05-18')
-        end_date   = self.request.GET.get('end_date',   '2024-05-30')
+        # start_date = self.request.GET.get('start_date', '2024-05-18') COMPLETE CLOUD COVERAGE
+        # end_date   = self.request.GET.get('end_date',   '2024-05-30')
 
-        mdl = LandCoverModel.get_instance()
+        start_date = self.request.GET.get('start_date', '2025-04-16')
+        end_date   = self.request.GET.get('end_date',   '2025-04-23')
+        model_name = self.request.GET.get('model', 'default')
+
+        # 2) Load correct model
+        if model_name == 'dw':
+            mdl = LandCoverModel.get_instance(
+                model_dir='/Users/shashankdutt/Downloads/dynamicworld-1.0.0/model/forward',
+                alias="another"
+            )
+        else:
+            mdl = LandCoverModel.get_instance()
+
+        # mdl = LandCoverModel.get_instance()
 
         # 2) Build Folium map + ClickForMarker
         m = folium.Map(
@@ -463,60 +457,213 @@ class home(TemplateView):
                           s2_resized[:,:,0] + 1e-10) + 1) / 2, 0, 1)[..., None]
             ], axis=-1)
 
+            # Calculate indices
+            ndvi = np.clip(((s2_resized[:,:,6] - s2_resized[:,:,2]) / 
+                        (s2_resized[:,:,6] + s2_resized[:,:,2] + 1e-10) + 1) / 2, 0, 1)
+
+            ndwi = np.clip(((s2_resized[:,:,6] - s2_resized[:,:,7]) / 
+                        (s2_resized[:,:,6] + s2_resized[:,:,7] + 1e-10) + 1) / 2, 0, 1)
+
+            evi = np.clip(2.5 * ((s2_resized[:,:,6] - s2_resized[:,:,2]) / 
+                        (s2_resized[:,:,6] + 6*s2_resized[:,:,2] - 
+                        7.5*s2_resized[:,:,0] + 1)), 0, 1)
+
+            arvi = np.clip(((s2_resized[:,:,6] - 2*s2_resized[:,:,2] + 
+                            s2_resized[:,:,0]) / 
+                        (s2_resized[:,:,6] + 2*s2_resized[:,:,2] + 
+                            s2_resized[:,:,0] + 1e-10) + 1) / 2, 0, 1)
+
             # 4) Inference
-            inp_tf = tf.expand_dims(tf.convert_to_tensor(model_input, dtype=tf.float32), axis=0)
-            class_map, prob_np = mdl.predict(inp_tf)
+            # inp_tf = tf.expand_dims(tf.cast(model_input, dtype=tf.float32), axis=0)
 
-            # 5) Build matplotlib figure (RGB + class‐colormap)
-            def hex_to_rgb(hex_color):
-                h = hex_color.lstrip('#')
-                return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+            # class_map, prob_np = mdl.predict(inp_tf)
 
-            class_indices = sorted(mdl.classifications.keys())
-            class_colors  = [hex_to_rgb(mdl.classifications[i]['color']) for i in class_indices]
-            class_names   = [mdl.classifications[i]['name'] for i in class_indices]
-            cmap = mcolors.ListedColormap(np.array(class_colors) / 255.0)
+            forward_model = tf.saved_model.load('/Users/shashankdutt/Downloads/dynamicworld-1.0.0/model/forward')
 
-            # True‑color S2 bands: Red=band 4→idx3, Green=band 3→idx2, Blue=band 2→idx1
-            rgb_raw = s2_resized[:, :, [3, 2, 1]]
-            # Stretch to [0,1] for display
-            mi, ma = rgb_raw.min(), rgb_raw.max()
-            rgb_vis = np.clip((rgb_raw - mi) / (ma - mi + 1e-10), 0, 1)
+            # DynamicWorld expects 4D (NHWC), float32 typed inputs.
+            nhwc_image = tf.expand_dims(tf.cast(s2_resized, dtype=tf.float32), axis=0)
 
-            boundaries = np.arange(len(class_names) + 1)
-            norm = BoundaryNorm(boundaries, ncolors=cmap.N)
+            # Run the model.
+            lulc_logits = forward_model(nhwc_image)
 
-            fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-            # Left: RGB composite
-            axes[0].imshow(rgb_vis)
-            axes[0].set_title('RGB Composite')
-            axes[0].axis('off')
-            # Right: predicted classes
-            im = axes[1].imshow(class_map, cmap=cmap, norm=norm)
-            axes[1].set_title('Predicted Land Cover')
-            axes[1].axis('off')
+            # Get the softmax of the output logits.
+            lulc_prob = tf.nn.softmax(lulc_logits)
 
-            cbar = fig.colorbar(
-                ScalarMappable(cmap=cmap, norm=norm),
-                ax=axes,
-                orientation='horizontal',
-                fraction=0.046,
-                pad=0.04
-            )
-            cbar.set_ticks(np.arange(len(class_names)) + 0.5)
-            cbar.set_ticklabels(class_names)
-            cbar.ax.tick_params(rotation=45, labelsize=8)
+            # Convert the 4D probabilites back into a 3D numpy array for easier indexing.
+            lulc_prob = np.array(lulc_prob[0])
 
-            plt.tight_layout()
+            # Define your band names in the EXACT order they were during training
+            INPUT_BANDS = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12', 'VV', 'VH', 'ndvi', 'ndwi', 'evi', 'arvi']
 
-            # 6) Encode figure to base64
+
+            # Create a band dictionary with your data
+            band_data = {
+                'B2': s2_resized[:,:,0],
+                'B3': s2_resized[:,:,1],
+                'B4': s2_resized[:,:,2],
+                'B5': s2_resized[:,:,3],
+                'B6': s2_resized[:,:,4],
+                'B7': s2_resized[:,:,5],
+                'B8': s2_resized[:,:,6],
+                'B11': s2_resized[:,:,7],
+                'B12': s2_resized[:,:,8],
+                'VV': s1_vv_rsz,
+                'VH': s1_vh_rsz,
+                'ndvi': ndvi,
+                'ndwi': ndwi,
+                'evi': evi,
+                'arvi': arvi
+            }
+
+            # Load the model
+            model = tf.saved_model.load('/Users/shashankdutt/Downloads/saved_model 2/my_model')
+            infer = model.signatures['serving_default']
+
+            # Get the input signature keys (inputs, inputs_1, etc.)
+            input_keys = list(infer.structured_input_signature[1].keys())
+
+            # Create mapping between band names and input tensor names
+            # Assuming the order of input_keys corresponds to the order of INPUT_BANDS
+            band_to_input_map = {band: key for band, key in zip(INPUT_BANDS, input_keys)}
+            print("Band to input mapping:", band_to_input_map)
+
+            # Create the inputs dictionary for inference
+            inputs_dict = {}
+            for band_name, input_key in band_to_input_map.items():
+                # Add batch dimension and channel dimension, cast to float32
+                inputs_dict[input_key] = tf.cast(
+                    tf.expand_dims(tf.expand_dims(band_data[band_name], 0), -1), 
+                    tf.float32
+                )
+
+            # Run inference
+            results = infer(**inputs_dict)
+            lulc_logits = results['output_0']  # Shape (1, 510, 510, 8)
+
+            # Apply softmax to get probabilities
+            lulc_prob = tf.nn.softmax(lulc_logits)[0].numpy()  # (510, 510, 8)
+
+            # Class color codes as hex strings (you can rearrange the order if needed)
+            CLASS_COLOR_HEX = [
+                "000000",  # No data
+                "419BDF",  # Water
+                "397D49",  # Crops & Trees
+                "88B053",  # Grass & Scrub
+                "7A87C6",  # Flooded vegetation
+                "C4281B",  # Built Area & Bare Ground
+                "B39FE1",  # Snow/Ice
+                "FFFFFF"   # Cloud
+            ]
+
+            # Convert hex to RGB (normalized 0–1)
+            CLASS_COLORS = np.array([[int(h[i:i+2], 16) for i in (0, 2, 4)] for h in CLASS_COLOR_HEX]) / 255.0
+
+            # Get class predictions (shape: 510x510) 
+            lulc_pred = np.argmax(lulc_prob, axis=-1)  # Shape: (510, 510)
+
+            # Map each pixel to its corresponding RGB color
+            lulc_rgb = CLASS_COLORS[lulc_pred]  # Shape: (510, 510, 3)
+
+            # Plot
+            fig, axarr = plt.subplots(1, 2, figsize=(12, 6))
+
+            # RGB image
+            axarr[0].imshow(s2_resized[:, :, [2, 1, 0]])
+            axarr[0].axis('off')
+            axarr[0].set_title('Normalized Image (RGB)')
+
+            # Land cover map
+            axarr[1].imshow(lulc_rgb)
+            axarr[1].axis('off')
+            axarr[1].set_title('Land Cover Classification (8 Classes)')
+
+
+
+
+            # fig, axarr = plt.subplots(1, 2)
+            # fig.set_size_inches(10, 5)
+
+            # axarr[0].imshow(s2_resized[:, :, [2, 1, 0]])
+            # axarr[0].axis('off')
+            # axarr[0].set_xlabel('Normalized Image')
+
+            # axarr[1].imshow(lulc_prob[:, :, [6, 2, 0]])
+            # axarr[1].axis('off')
+            # axarr[1].set_xlabel('Built/Grass/Water Probabilities as R/G/B')
+
+            for idx, ax in enumerate(axarr):
+                # grab the RGBA buffer
+                canvas = fig.canvas
+                canvas.draw()
+                buf_rgba = canvas.buffer_rgba()
+                arr = np.frombuffer(buf_rgba, dtype=np.uint8)
+                print(f"Canvas {idx} preview:", arr[:12], "…")
+
+
+            # Save figure to BytesIO buffer
             buf = BytesIO()
             fig.savefig(buf, format='png', bbox_inches='tight')
             plt.close(fig)
             buf.seek(0)
+
+            # Encode to base64
             prediction_plot = base64.b64encode(buf.getvalue()).decode('utf-8')
 
+
             context['prediction_status'] = 'Prediction successful'
+
+            
+
+            # # 5) Build matplotlib figure (RGB + class‐colormap)
+            # def hex_to_rgb(hex_color):
+            #     h = hex_color.lstrip('#')
+            #     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+            # class_indices = sorted(mdl.classifications.keys())
+            # class_colors  = [hex_to_rgb(mdl.classifications[i]['color']) for i in class_indices]
+            # class_names   = [mdl.classifications[i]['name'] for i in class_indices]
+            # cmap = mcolors.ListedColormap(np.array(class_colors) / 255.0)
+
+            # # True color S2 bands: Red=band 4→idx3, Green=band 3→idx2, Blue=band 2→idx1
+            # rgb_raw = s2_resized[:, :, [3, 2, 1]]
+            # # Stretch to [0,1] for display
+            # mi, ma = rgb_raw.min(), rgb_raw.max()
+            # rgb_vis = np.clip((rgb_raw - mi) / (ma - mi + 1e-10), 0, 1)
+
+            # boundaries = np.arange(len(class_names) + 1)
+            # norm = BoundaryNorm(boundaries, ncolors=cmap.N)
+
+            # fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+            # # Left: RGB composite
+            # axes[0].imshow(rgb_vis)
+            # axes[0].set_title('RGB Composite')
+            # axes[0].axis('off')
+            # # Right: predicted classes
+            # im = axes[1].imshow(class_map, cmap=cmap, norm=norm)
+            # axes[1].set_title('Predicted Land Cover')
+            # axes[1].axis('off')
+
+            # cbar = fig.colorbar(
+            #     ScalarMappable(cmap=cmap, norm=norm),
+            #     ax=axes,
+            #     orientation='horizontal',
+            #     fraction=0.046,
+            #     pad=0.04
+            # )
+            # cbar.set_ticks(np.arange(len(class_names)) + 0.5)
+            # cbar.set_ticklabels(class_names)
+            # cbar.ax.tick_params(rotation=45, labelsize=8)
+
+            # plt.tight_layout()
+
+            # # 6) Encode figure to base64
+            # buf = BytesIO()
+            # fig.savefig(buf, format='png', bbox_inches='tight')
+            # plt.close(fig)
+            # buf.seek(0)
+            # prediction_plot = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+            # context['prediction_status'] = 'Prediction successful'
 
         except Exception as e:
             logger.error(f"Prediction failed: {e}")
@@ -533,7 +680,6 @@ class home(TemplateView):
             'classifications': mdl.classifications,
         })
         return context
-
 
 
 
@@ -586,7 +732,6 @@ class home(TemplateView):
             'palette': ['000000', '419BDF', '397D49', '88B053',
                         '7A87C6', 'C4281B', 'B39FE1', 'FFFFFF']
         }
-
 
         try:
             # Get satellite images
@@ -673,7 +818,6 @@ class home(TemplateView):
 
 
 
-
             context['prediction_status'] = 'Prediction successful'
 
         except Exception as e:
@@ -694,7 +838,6 @@ class home(TemplateView):
         else:
             map_html = "<p>Unable to render map.</p>"
 
-
         # figure.render()
 
         context.update({
@@ -709,7 +852,6 @@ class home(TemplateView):
         return context
 
 '''
-
 
 
 
@@ -738,7 +880,6 @@ class home(TemplateView):
 
         #add map to figure
         m.add_to(figure)
-
 
         #folium imports
         # Add custom base maps to folium
@@ -785,7 +926,6 @@ class home(TemplateView):
         basemaps['Google Satellite Hybrid'].add_to(m)
 
 
-
         S2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED').filterDate(start_date, end_date) \
             .filterBounds(ee.Geometry.Polygon(
                 [[[88.5034748557929, 22.401058301237384],
@@ -822,7 +962,6 @@ class home(TemplateView):
             control=True
         ).add_to(m)
 
-
         #add Layer control
         m.add_child(folium.LayerControl())
        
@@ -837,9 +976,7 @@ class home(TemplateView):
 
         
 
-
 '''
-
 
 '''
         #select the Dataset Here's used the MODIS data
