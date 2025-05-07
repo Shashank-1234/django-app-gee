@@ -375,27 +375,17 @@ def combine_classes(label_array):
     mapped[mapped == 10] = 7
     return mapped
 
-# Your final 8 class names + hex colors
-CLASS_ORDER = [
-    "No data",
-    "Water",
-    "Crops & Trees",
-    "Grass & Scrub",
-    "Flooded vegetation",
-    "Built Area & Bare Ground",
-    "Snow/Ice",
-    "Cloud"
-]
-CLASS_COLOR_HEX = [
-    "000000",
-    "419BDF",
-    "397D49",
-    "88B053",
-    "7A87C6",
-    "C4281B",
-    "B39FE1",
-    "FFFFFF"
-]
+# Final 8 classes + hex colors
+CLASSIFICATIONS_FINAL = {
+    "No data":                   "000000",
+    "Water":                     "419BDF",
+    "Crops & Trees":             "397D49",
+    "Grass & Scrub":             "88B053",
+    "Flooded vegetation":        "7A87C6",
+    "Built Area & Bare Ground":  "C4281B",
+    "Snow/Ice":                  "B39FE1",
+    "Cloud":                     "FFFFFF"
+}
 
 class home(TemplateView):
     template_name = 'gee/index.html'
@@ -428,7 +418,7 @@ class home(TemplateView):
                 if arr is None or np.isnan(arr).any() or np.isinf(arr).any():
                     raise ValueError(f"Invalid {name} data")
 
-            s2r = resize_image(s2, (PATCH_SIZE, PATCH_SIZE, s2.shape[-1]))
+            s2r = resize_image(s2,   (PATCH_SIZE, PATCH_SIZE, s2.shape[-1]))
             vv  = resize_image(np.squeeze(s1_vv), (PATCH_SIZE, PATCH_SIZE))
             vh  = resize_image(np.squeeze(s1_vh), (PATCH_SIZE, PATCH_SIZE))
 
@@ -443,18 +433,17 @@ class home(TemplateView):
             arvi = np.clip(((s2r[:,:,6] - 2*s2r[:,:,2] + s2r[:,:,0]) /
                             (s2r[:,:,6] + 2*s2r[:,:,2] + s2r[:,:,0] + 1e-10) + 1)/2, 0,1)
 
-            # === Dynamic World inference (10‑class model) ===
+            # === Dynamic World (10-class) inference ===
             dw_model = tf.saved_model.load(
                 '/Users/shashankdutt/Downloads/dynamicworld-1.0.0/model/forward'
             )
-            x_dw = tf.expand_dims(tf.cast(s2r, tf.float32), 0)
-            dw_logits = dw_model(x_dw)                  # (1, H, W, 10)
+            x_dw     = tf.expand_dims(tf.cast(s2r, tf.float32), 0)
+            dw_logits= dw_model(x_dw)  # (1,H,W,10)
             dw_raw   = np.argmax(tf.nn.softmax(dw_logits)[0].numpy(), axis=-1)
-            # SHIFT by +1 so that 0→1 (water), 1→2 (trees), …, 9→10 (cloud)
-            dw_full  = dw_raw + 1                        # (H, W) in 1..10
-            dw_lbl8  = combine_classes(dw_full)          # (H, W) in 0..7
+            dw_full  = dw_raw + 1      # shift 0→1, …, 9→10
+            dw_lbl8  = combine_classes(dw_full)
 
-            # === Your SavedModel inference (11‑class) ===
+            # === Your SavedModel (11-class) inference ===
             sm_model = tf.saved_model.load('/Users/shashankdutt/Downloads/saved_model 2/my_model')
             infer    = sm_model.signatures['serving_default']
             BANDS    = [
@@ -476,14 +465,14 @@ class home(TemplateView):
               )
               for i,b in enumerate(BANDS)
             }
-            sm_logits = infer(**inp_sm)['output_0']        # (1, H, W, 11)
+            sm_logits = infer(**inp_sm)['output_0']  # (1,H,W,11)
             sm_lbl11  = np.argmax(tf.nn.softmax(sm_logits)[0].numpy(), axis=-1)
             sm_lbl8   = combine_classes(sm_lbl11)
 
             # === Color mapping & plotting ===
             CLASS_COL = np.array(
               [[int(h[i:i+2],16) for i in (0,2,4)]
-               for h in CLASS_COLOR_HEX]
+               for h in CLASSIFICATIONS_FINAL.values()]
             ) / 255.0
 
             dw_rgb = CLASS_COL[dw_lbl8]
@@ -498,7 +487,7 @@ class home(TemplateView):
             ax[2].axis('off'); ax[2].set_title('Saved Model')
 
             # --- Alternate plotting (commented out) ---
-            # boundaries = np.arange(len(CLASS_COLOR_HEX)+1)
+            # boundaries = np.arange(len(CLASSIFICATIONS_FINAL)+1)
             # cmap = matplotlib.colors.ListedColormap(CLASS_COL)
             # norm = BoundaryNorm(boundaries, cmap.N)
             # fig2, ax2 = plt.subplots(figsize=(6,6))
@@ -526,14 +515,11 @@ class home(TemplateView):
 
         # 7) Legend & form defaults
         ctx.update({
-            'lat':         lat,
-            'lon':         lon,
-            'start_date':  sd,
-            'end_date':    ed,
-            'classifications': {
-                CLASS_ORDER[i]: {'color': CLASS_COLOR_HEX[i]}
-                for i in range(len(CLASS_ORDER))
-            }
+            'lat':            lat,
+            'lon':            lon,
+            'start_date':     sd,
+            'end_date':       ed,
+            'classifications': CLASSIFICATIONS_FINAL
         })
         return ctx
 
