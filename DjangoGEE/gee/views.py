@@ -342,344 +342,203 @@ def get_sentinel1_image(lon, lat, start_date, end_date, scale=10, max_days=30):
     return image_vv, image_vh
 
 
+
+# views.py
+
 from django.views.generic import TemplateView
-import folium
-import ee
-import numpy as np
-import tensorflow as tf
-import logging
-import matplotlib
-# Use Agg backend for headless (no display) rendering :contentReference[oaicite:0]{index=0}
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from io import BytesIO
-import base64
-
-import os
-import logging
-
-import numpy as np
-import tensorflow as tf
-import folium
-from django.conf import settings
-from django.views.generic import TemplateView
-
-# Matplotlib headless setup
+import folium, ee, numpy as np, tensorflow as tf, logging
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
-from matplotlib.cm import ScalarMappable
-from matplotlib.colors import BoundaryNorm
-
 from io import BytesIO
 import base64
 
 from .models import LandCoverModel
 
 logger = logging.getLogger(__name__)
+PATCH_SIZE = 510
+
+def combine_classes(label_array):
+    """
+    Merge an 11-class map (0–10) into your 8‑class scheme:
+      - Scrub (6) → Grass (3)
+      - Crops (5) → Trees (2)
+      - Built Area (7) & Bare Ground (8) → class 5
+      - Snow/Ice (9) → 6
+      - Cloud (10) → 7
+    """
+    mapped = label_array.copy()
+    mapped[mapped == 6] = 3
+    mapped[mapped == 5] = 2
+    mapped[(mapped == 7) | (mapped == 8)] = 5
+    mapped[mapped == 9] = 6
+    mapped[mapped == 10] = 7
+    return mapped
+
+# Your final 8 class names + hex colors
+CLASS_ORDER = [
+    "No data",
+    "Water",
+    "Crops & Trees",
+    "Grass & Scrub",
+    "Flooded vegetation",
+    "Built Area & Bare Ground",
+    "Snow/Ice",
+    "Cloud"
+]
+CLASS_COLOR_HEX = [
+    "000000",
+    "419BDF",
+    "397D49",
+    "88B053",
+    "7A87C6",
+    "C4281B",
+    "B39FE1",
+    "FFFFFF"
+]
 
 class home(TemplateView):
     template_name = 'gee/index.html'
 
     def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
+        ctx = super().get_context_data(**kwargs)
 
-        # 1) Read query parameters (with defaults)
-        lat        = float(self.request.GET.get('lat',       22.139527120131657))
-        lon        = float(self.request.GET.get('lon',       88.85593401040623))
-        # start_date = self.request.GET.get('start_date', '2024-05-18') COMPLETE CLOUD COVERAGE
-        # end_date   = self.request.GET.get('end_date',   '2024-05-30')
+        # 1) Read inputs
+        lat = float(self.request.GET.get('lat', 22.139527120131657))
+        lon = float(self.request.GET.get('lon', 88.85593401040623))
+        sd  = self.request.GET.get('start_date', '2025-04-16')
+        ed  = self.request.GET.get('end_date',   '2025-04-23')
 
-        start_date = self.request.GET.get('start_date', '2025-04-16')
-        end_date   = self.request.GET.get('end_date',   '2025-04-23')
-        model_name = self.request.GET.get('model', 'default')
-
-        # 2) Load correct model
-        if model_name == 'dw':
-            mdl = LandCoverModel.get_instance(
-                model_dir='/Users/shashankdutt/Downloads/dynamicworld-1.0.0/model/forward',
-                alias="another"
-            )
-        else:
-            mdl = LandCoverModel.get_instance()
-
-        # mdl = LandCoverModel.get_instance()
-
-        # 2) Build Folium map + ClickForMarker
+        # 2) Build Folium map
         m = folium.Map(
             location=[lat, lon],
             zoom_start=14,
             tiles='Esri.WorldImagery',
             attr='Esri'
         )
-        folium.ClickForMarker(popup=None).add_to(m)
+        folium.Marker([lat, lon]).add_to(m)
+        folium.ClickForMarker().add_to(m)
         map_html = m.get_root().render()
-
-        # Prepare for prediction
-        prediction_plot = None
 
         try:
             # 3) Fetch & preprocess imagery
-            s2 = get_sentinel2_image(lon, lat, start_date, end_date)
-            s1_vv, s1_vh = get_sentinel1_image(lon, lat, start_date, end_date)
+            s2 = get_sentinel2_image(lon, lat, sd, ed)
+            s1_vv, s1_vh = get_sentinel1_image(lon, lat, sd, ed)
+            for arr,name in [(s2,'Sentinel‑2'), (s1_vv,'VV'), (s1_vh,'VH')]:
+                if arr is None or np.isnan(arr).any() or np.isinf(arr).any():
+                    raise ValueError(f"Invalid {name} data")
 
-            # Check for None/NaN/Inf
-            if s2 is None or np.isnan(s2).any() or np.isinf(s2).any():
-                raise ValueError("Invalid Sentinel-2 data")
-            if s1_vv is None or np.isnan(s1_vv).any() or np.isinf(s1_vv).any():
-                raise ValueError("Invalid Sentinel-1 VV data")
-            if s1_vh is None or np.isnan(s1_vh).any() or np.isinf(s1_vh).any():
-                raise ValueError("Invalid Sentinel-1 VH data")
-            
-            s2_resized = resize_image(s2,   (PATCH_SIZE, PATCH_SIZE, s2.shape[-1]))
-            s1_vv_rsz  = resize_image(np.squeeze(s1_vv), (PATCH_SIZE, PATCH_SIZE))
-            s1_vh_rsz  = resize_image(np.squeeze(s1_vh), (PATCH_SIZE, PATCH_SIZE))
+            s2r = resize_image(s2, (PATCH_SIZE, PATCH_SIZE, s2.shape[-1]))
+            vv  = resize_image(np.squeeze(s1_vv), (PATCH_SIZE, PATCH_SIZE))
+            vh  = resize_image(np.squeeze(s1_vh), (PATCH_SIZE, PATCH_SIZE))
 
-            model_input = np.concatenate([
-                s2_resized,
-                s1_vv_rsz[..., None],
-                s1_vh_rsz[..., None],
-                # NDVI
-                np.clip(((s2_resized[:,:,6] - s2_resized[:,:,2]) /
-                         (s2_resized[:,:,6] + s2_resized[:,:,2] + 1e-10) + 1) / 2, 0, 1)[..., None],
-                # NDWI
-                np.clip(((s2_resized[:,:,6] - s2_resized[:,:,7]) /
-                         (s2_resized[:,:,6] + s2_resized[:,:,7] + 1e-10) + 1) / 2, 0, 1)[..., None],
-                # EVI
-                np.clip(2.5 * ((s2_resized[:,:,6] - s2_resized[:,:,2]) /
-                       (s2_resized[:,:,6] + 6*s2_resized[:,:,2] -
-                        7.5*s2_resized[:,:,0] + 1)), 0, 1)[..., None],
-                # ARVI
-                np.clip(((s2_resized[:,:,6] - 2*s2_resized[:,:,2] +
-                          s2_resized[:,:,0]) /
-                         (s2_resized[:,:,6] + 2*s2_resized[:,:,2] +
-                          s2_resized[:,:,0] + 1e-10) + 1) / 2, 0, 1)[..., None]
-            ], axis=-1)
+            # Vegetation indices
+            ndvi = np.clip(((s2r[:,:,6] - s2r[:,:,2]) /
+                            (s2r[:,:,6] + s2r[:,:,2] + 1e-10) + 1)/2, 0,1)
+            ndwi = np.clip(((s2r[:,:,6] - s2r[:,:,7]) /
+                            (s2r[:,:,6] + s2r[:,:,7] + 1e-10) + 1)/2, 0,1)
+            evi  = np.clip(2.5 * ((s2r[:,:,6] - s2r[:,:,2]) /
+                            (s2r[:,:,6] + 6*s2r[:,:,2] -
+                             7.5*s2r[:,:,0] + 1)), 0,1)
+            arvi = np.clip(((s2r[:,:,6] - 2*s2r[:,:,2] + s2r[:,:,0]) /
+                            (s2r[:,:,6] + 2*s2r[:,:,2] + s2r[:,:,0] + 1e-10) + 1)/2, 0,1)
 
-            # Calculate indices
-            ndvi = np.clip(((s2_resized[:,:,6] - s2_resized[:,:,2]) / 
-                        (s2_resized[:,:,6] + s2_resized[:,:,2] + 1e-10) + 1) / 2, 0, 1)
+            # === Dynamic World inference (10‑class model) ===
+            dw_model = tf.saved_model.load(
+                '/Users/shashankdutt/Downloads/dynamicworld-1.0.0/model/forward'
+            )
+            x_dw = tf.expand_dims(tf.cast(s2r, tf.float32), 0)
+            dw_logits = dw_model(x_dw)                  # (1, H, W, 10)
+            dw_raw   = np.argmax(tf.nn.softmax(dw_logits)[0].numpy(), axis=-1)
+            # SHIFT by +1 so that 0→1 (water), 1→2 (trees), …, 9→10 (cloud)
+            dw_full  = dw_raw + 1                        # (H, W) in 1..10
+            dw_lbl8  = combine_classes(dw_full)          # (H, W) in 0..7
 
-            ndwi = np.clip(((s2_resized[:,:,6] - s2_resized[:,:,7]) / 
-                        (s2_resized[:,:,6] + s2_resized[:,:,7] + 1e-10) + 1) / 2, 0, 1)
-
-            evi = np.clip(2.5 * ((s2_resized[:,:,6] - s2_resized[:,:,2]) / 
-                        (s2_resized[:,:,6] + 6*s2_resized[:,:,2] - 
-                        7.5*s2_resized[:,:,0] + 1)), 0, 1)
-
-            arvi = np.clip(((s2_resized[:,:,6] - 2*s2_resized[:,:,2] + 
-                            s2_resized[:,:,0]) / 
-                        (s2_resized[:,:,6] + 2*s2_resized[:,:,2] + 
-                            s2_resized[:,:,0] + 1e-10) + 1) / 2, 0, 1)
-
-            # 4) Inference
-            # inp_tf = tf.expand_dims(tf.cast(model_input, dtype=tf.float32), axis=0)
-
-            # class_map, prob_np = mdl.predict(inp_tf)
-
-            forward_model = tf.saved_model.load('/Users/shashankdutt/Downloads/dynamicworld-1.0.0/model/forward')
-
-            # DynamicWorld expects 4D (NHWC), float32 typed inputs.
-            nhwc_image = tf.expand_dims(tf.cast(s2_resized, dtype=tf.float32), axis=0)
-
-            # Run the model.
-            lulc_logits = forward_model(nhwc_image)
-
-            # Get the softmax of the output logits.
-            lulc_prob = tf.nn.softmax(lulc_logits)
-
-            # Convert the 4D probabilites back into a 3D numpy array for easier indexing.
-            lulc_prob = np.array(lulc_prob[0])
-
-            # Define your band names in the EXACT order they were during training
-            INPUT_BANDS = ['B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8', 'B11', 'B12', 'VV', 'VH', 'ndvi', 'ndwi', 'evi', 'arvi']
-
-
-            # Create a band dictionary with your data
-            band_data = {
-                'B2': s2_resized[:,:,0],
-                'B3': s2_resized[:,:,1],
-                'B4': s2_resized[:,:,2],
-                'B5': s2_resized[:,:,3],
-                'B6': s2_resized[:,:,4],
-                'B7': s2_resized[:,:,5],
-                'B8': s2_resized[:,:,6],
-                'B11': s2_resized[:,:,7],
-                'B12': s2_resized[:,:,8],
-                'VV': s1_vv_rsz,
-                'VH': s1_vh_rsz,
-                'ndvi': ndvi,
-                'ndwi': ndwi,
-                'evi': evi,
-                'arvi': arvi
-            }
-
-            # Load the model
-            model = tf.saved_model.load('/Users/shashankdutt/Downloads/saved_model 2/my_model')
-            infer = model.signatures['serving_default']
-
-            # Get the input signature keys (inputs, inputs_1, etc.)
-            input_keys = list(infer.structured_input_signature[1].keys())
-
-            # Create mapping between band names and input tensor names
-            # Assuming the order of input_keys corresponds to the order of INPUT_BANDS
-            band_to_input_map = {band: key for band, key in zip(INPUT_BANDS, input_keys)}
-            print("Band to input mapping:", band_to_input_map)
-
-            # Create the inputs dictionary for inference
-            inputs_dict = {}
-            for band_name, input_key in band_to_input_map.items():
-                # Add batch dimension and channel dimension, cast to float32
-                inputs_dict[input_key] = tf.cast(
-                    tf.expand_dims(tf.expand_dims(band_data[band_name], 0), -1), 
-                    tf.float32
-                )
-
-            # Run inference
-            results = infer(**inputs_dict)
-            lulc_logits = results['output_0']  # Shape (1, 510, 510, 8)
-
-            # Apply softmax to get probabilities
-            lulc_prob = tf.nn.softmax(lulc_logits)[0].numpy()  # (510, 510, 8)
-
-            # Class color codes as hex strings (you can rearrange the order if needed)
-            CLASS_COLOR_HEX = [
-                "000000",  # No data
-                "419BDF",  # Water
-                "397D49",  # Crops & Trees
-                "88B053",  # Grass & Scrub
-                "7A87C6",  # Flooded vegetation
-                "C4281B",  # Built Area & Bare Ground
-                "B39FE1",  # Snow/Ice
-                "FFFFFF"   # Cloud
+            # === Your SavedModel inference (11‑class) ===
+            sm_model = tf.saved_model.load('/Users/shashankdutt/Downloads/saved_model 2/my_model')
+            infer    = sm_model.signatures['serving_default']
+            BANDS    = [
+              'B2','B3','B4','B5','B6','B7','B8','B11','B12',
+              'VV','VH','ndvi','ndwi','evi','arvi'
             ]
+            band_data = {
+              'B2': s2r[:,:,0], 'B3': s2r[:,:,1], 'B4': s2r[:,:,2],
+              'B5': s2r[:,:,3], 'B6': s2r[:,:,4], 'B7': s2r[:,:,5],
+              'B8': s2r[:,:,6], 'B11':s2r[:,:,7],'B12':s2r[:,:,8],
+              'VV': vv, 'VH': vh,
+              'ndvi': ndvi,'ndwi': ndwi,'evi': evi,'arvi': arvi
+            }
+            keys = list(infer.structured_input_signature[1].keys())
+            inp_sm = {
+              keys[i]: tf.cast(
+                tf.expand_dims(tf.expand_dims(band_data[b], 0), -1),
+                tf.float32
+              )
+              for i,b in enumerate(BANDS)
+            }
+            sm_logits = infer(**inp_sm)['output_0']        # (1, H, W, 11)
+            sm_lbl11  = np.argmax(tf.nn.softmax(sm_logits)[0].numpy(), axis=-1)
+            sm_lbl8   = combine_classes(sm_lbl11)
 
-            # Convert hex to RGB (normalized 0–1)
-            CLASS_COLORS = np.array([[int(h[i:i+2], 16) for i in (0, 2, 4)] for h in CLASS_COLOR_HEX]) / 255.0
+            # === Color mapping & plotting ===
+            CLASS_COL = np.array(
+              [[int(h[i:i+2],16) for i in (0,2,4)]
+               for h in CLASS_COLOR_HEX]
+            ) / 255.0
 
-            # Get class predictions (shape: 510x510) 
-            lulc_pred = np.argmax(lulc_prob, axis=-1)  # Shape: (510, 510)
+            dw_rgb = CLASS_COL[dw_lbl8]
+            sm_rgb = CLASS_COL[sm_lbl8]
 
-            # Map each pixel to its corresponding RGB color
-            lulc_rgb = CLASS_COLORS[lulc_pred]  # Shape: (510, 510, 3)
+            fig, ax = plt.subplots(1,3, figsize=(18,6))
+            ax[0].imshow(s2r[:,:, [2,1,0]])
+            ax[0].axis('off'); ax[0].set_title('RGB Image')
+            ax[1].imshow(dw_rgb)
+            ax[1].axis('off'); ax[1].set_title('Dynamic World')
+            ax[2].imshow(sm_rgb)
+            ax[2].axis('off'); ax[2].set_title('Saved Model')
 
-            # Plot
-            fig, axarr = plt.subplots(1, 2, figsize=(12, 6))
+            # --- Alternate plotting (commented out) ---
+            # boundaries = np.arange(len(CLASS_COLOR_HEX)+1)
+            # cmap = matplotlib.colors.ListedColormap(CLASS_COL)
+            # norm = BoundaryNorm(boundaries, cmap.N)
+            # fig2, ax2 = plt.subplots(figsize=(6,6))
+            # ax2.imshow(sm_lbl8, cmap=cmap, norm=norm)
+            # ax2.set_title('SavedModel Only'); ax2.axis('off')
 
-            # RGB image
-            axarr[0].imshow(s2_resized[:, :, [2, 1, 0]])
-            axarr[0].axis('off')
-            axarr[0].set_title('Normalized Image (RGB)')
-
-            # Land cover map
-            axarr[1].imshow(lulc_rgb)
-            axarr[1].axis('off')
-            axarr[1].set_title('Land Cover Classification (8 Classes)')
-
-
-
-
-            # fig, axarr = plt.subplots(1, 2)
-            # fig.set_size_inches(10, 5)
-
-            # axarr[0].imshow(s2_resized[:, :, [2, 1, 0]])
-            # axarr[0].axis('off')
-            # axarr[0].set_xlabel('Normalized Image')
-
-            # axarr[1].imshow(lulc_prob[:, :, [6, 2, 0]])
-            # axarr[1].axis('off')
-            # axarr[1].set_xlabel('Built/Grass/Water Probabilities as R/G/B')
-
-            for idx, ax in enumerate(axarr):
-                # grab the RGBA buffer
-                canvas = fig.canvas
-                canvas.draw()
-                buf_rgba = canvas.buffer_rgba()
-                arr = np.frombuffer(buf_rgba, dtype=np.uint8)
-                print(f"Canvas {idx} preview:", arr[:12], "…")
-
-
-            # Save figure to BytesIO buffer
             buf = BytesIO()
             fig.savefig(buf, format='png', bbox_inches='tight')
             plt.close(fig)
             buf.seek(0)
+            plot_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
 
-            # Encode to base64
-            prediction_plot = base64.b64encode(buf.getvalue()).decode('utf-8')
-
-
-            context['prediction_status'] = 'Prediction successful'
-
-            
-
-            # # 5) Build matplotlib figure (RGB + class‐colormap)
-            # def hex_to_rgb(hex_color):
-            #     h = hex_color.lstrip('#')
-            #     return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
-
-            # class_indices = sorted(mdl.classifications.keys())
-            # class_colors  = [hex_to_rgb(mdl.classifications[i]['color']) for i in class_indices]
-            # class_names   = [mdl.classifications[i]['name'] for i in class_indices]
-            # cmap = mcolors.ListedColormap(np.array(class_colors) / 255.0)
-
-            # # True color S2 bands: Red=band 4→idx3, Green=band 3→idx2, Blue=band 2→idx1
-            # rgb_raw = s2_resized[:, :, [3, 2, 1]]
-            # # Stretch to [0,1] for display
-            # mi, ma = rgb_raw.min(), rgb_raw.max()
-            # rgb_vis = np.clip((rgb_raw - mi) / (ma - mi + 1e-10), 0, 1)
-
-            # boundaries = np.arange(len(class_names) + 1)
-            # norm = BoundaryNorm(boundaries, ncolors=cmap.N)
-
-            # fig, axes = plt.subplots(1, 2, figsize=(12, 6))
-            # # Left: RGB composite
-            # axes[0].imshow(rgb_vis)
-            # axes[0].set_title('RGB Composite')
-            # axes[0].axis('off')
-            # # Right: predicted classes
-            # im = axes[1].imshow(class_map, cmap=cmap, norm=norm)
-            # axes[1].set_title('Predicted Land Cover')
-            # axes[1].axis('off')
-
-            # cbar = fig.colorbar(
-            #     ScalarMappable(cmap=cmap, norm=norm),
-            #     ax=axes,
-            #     orientation='horizontal',
-            #     fraction=0.046,
-            #     pad=0.04
-            # )
-            # cbar.set_ticks(np.arange(len(class_names)) + 0.5)
-            # cbar.set_ticklabels(class_names)
-            # cbar.ax.tick_params(rotation=45, labelsize=8)
-
-            # plt.tight_layout()
-
-            # # 6) Encode figure to base64
-            # buf = BytesIO()
-            # fig.savefig(buf, format='png', bbox_inches='tight')
-            # plt.close(fig)
-            # buf.seek(0)
-            # prediction_plot = base64.b64encode(buf.getvalue()).decode('utf-8')
-
-            # context['prediction_status'] = 'Prediction successful'
+            ctx.update({
+                'map_html':         map_html,
+                'prediction_plot':  plot_b64,
+                'prediction_status':'Prediction successful'
+            })
 
         except Exception as e:
             logger.error(f"Prediction failed: {e}")
-            context['prediction_status'] = f'Error: {e}'
+            ctx.update({
+                'map_html':         map_html,
+                'prediction_status':f'Error: {e}'
+            })
 
-        # 7) Push everything to the template
-        context.update({
-            'map_html':        map_html,
-            'prediction_plot': prediction_plot,
-            'lat':             lat,
-            'lon':             lon,
-            'start_date':      start_date,
-            'end_date':        end_date,
-            'classifications': mdl.classifications,
+        # 7) Legend & form defaults
+        ctx.update({
+            'lat':         lat,
+            'lon':         lon,
+            'start_date':  sd,
+            'end_date':    ed,
+            'classifications': {
+                CLASS_ORDER[i]: {'color': CLASS_COLOR_HEX[i]}
+                for i in range(len(CLASS_ORDER))
+            }
         })
-        return context
+        return ctx
+
+
+
 
 
 
