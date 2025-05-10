@@ -11,10 +11,33 @@
     </div>
     <div class="card-body">
       <form method="GET" class="row g-3">
-        <!-- lat/lon & dates as before... -->
+        <div class="col-md-4">
+          <label for="id_lat" class="form-label">Latitude</label>
+          <input type="text" class="form-control" id="id_lat" name="lat"
+                 value="{{ lat }}" placeholder="22.139528">
+        </div>
+        <div class="col-md-4">
+          <label for="id_lon" class="form-label">Longitude</label>
+          <input type="text" class="form-control" id="id_lon" name="lon"
+                 value="{{ lon }}" placeholder="88.855934">
+        </div>
+        <div class="col-md-4">
+          <label for="start_date" class="form-label">Start Date</label>
+          <input type="date" class="form-control" id="start_date" name="start_date"
+                 value="{{ start_date }}">
+        </div>
+        <div class="col-md-4">
+          <label for="end_date" class="form-label">End Date</label>
+          <input type="date" class="form-control" id="end_date" name="end_date"
+                 value="{{ end_date }}">
+        </div>
+        <div class="col-12">
+          <button type="submit" class="btn btn-primary">Generate Map</button>
+        </div>
       </form>
     </div>
   </div>
+
 
   <!-- Satellite Map -->
   <div class="card mb-4">
