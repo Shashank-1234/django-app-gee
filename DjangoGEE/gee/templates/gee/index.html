@@ -100,6 +100,26 @@
 </div>
 
 <script>
+  let leafletMap;
+  for (let k in window) {
+    if (window[k] instanceof L.Map) {
+      leafletMap = window[k];
+      break;
+    }
+  }
+  if (!leafletMap) {
+    console.error("Leaflet map not found!");
+  } else {
+    leafletMap.on('click', function(e) {
+      const { lat, lng } = e.latlng;
+      // show marker
+      L.marker([lat, lng]).addTo(leafletMap);
+      // update form fields
+      document.getElementById('id_lat').value = lat.toFixed(6);
+      document.getElementById('id_lon').value = lng.toFixed(6);
+    });
+  }
   // Leaflet click → form fields (same as before)
 </script>
+
 {% endblock %}
